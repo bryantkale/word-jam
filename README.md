@@ -1,56 +1,30 @@
-# Welcome to your Expo app 👋
+# Wordjam
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Wordjam helps you look up English words, see their definitions and example sentences, and revisit your lookup history. You can also schedule a week of daily local reminders featuring sentences for words you have looked up.
 
-## Get started
+## Run the app
 
-1. Install dependencies
+1. Install dependencies with `npm install`.
+2. Copy `.env.example` to `.env` and add your Supabase project URL and publishable key (or anon key).
+3. Run the SQL in [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL Editor.
+4. In Supabase Authentication settings, enable anonymous sign-ins.
+5. Start the app with `npx expo start`.
 
-   ```bash
-   npm install
-   ```
+The app uses the free Dictionary API at `dictionaryapi.dev` for definitions and examples. A word is only added to the journal after Supabase confirms it was saved.
 
-2. Start the app
+## Supabase setup
 
-   ```bash
-   npx expo start
-   ```
+Create an `.env` file:
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Expo only exposes variables prefixed with `EXPO_PUBLIC_` to the app. If your `.env` already has unprefixed Supabase variable names, copy their values to the public-prefixed names above.
 
-### Other setup steps
+Only a Supabase publishable/anon key belongs in the client app. Row-level security in the included schema limits each anonymous account to its own lookup history. Never put a Supabase service-role key in the app.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Word lists use a private anonymous Supabase session saved on the device; there is no sign-in or cross-device recovery in this first version. Add a user sign-in flow if people should be able to restore or sync their collection across devices.
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Daily reminders are local notifications and do not require a push-notification server. The app schedules a rolling seven-morning window at 9:00 AM, refreshing it when you open the app or look up a word. Notification permission is required; reminders are supported on iOS and Android.
