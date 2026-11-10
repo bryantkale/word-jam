@@ -1,66 +1,44 @@
-import { type JSX } from 'react';
+/**
+ * Sample React Native App
+ * https://github.com/facebook/react-native
+ *
+ * @format
+ */
+
+import { NewAppScreen } from '@react-native/new-app-screen';
+import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
 import {
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    useColorScheme,
-    View,
-} from 'react-native';
+    SafeAreaProvider,
+    useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
-import {
-    Colors,
-    DebugInstructions,
-    Header,
-    ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+function App() {
+    const isDarkMode = useColorScheme() === 'dark';
 
-const isDarkMode = useColorScheme() === 'dark';
+    return (
+        <SafeAreaProvider>
+            <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+            <AppContent />
+        </SafeAreaProvider>
+    );
+}
 
-const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
-};
+function AppContent() {
+    const safeAreaInsets = useSafeAreaInsets();
 
-return (
-    <SafeAreaView style={backgroundStyle}>
-        <StatusBar
-            barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-            backgroundColor={backgroundStyle.backgroundColor}
-        />
-        <ScrollView
-            contentInsetAdjustmentBehavior="automatic"
-            style={backgroundStyle}>
-            <Header />
-            <View
-                style={{
-                    backgroundColor: isDarkMode
-                        ? Colors.black
-                        : Colors.white,
-                    padding: 24,
-                }}>
-                <Text style={styles.title}>Step One</Text>
-                <Text>
-                    Edit <Text style={styles.bold}>App.tsx</Text> to
-                    change this screen and see your edits.
-                </Text>
-                <Text style={styles.title}>See your changes</Text>
-                <ReloadInstructions />
-                <Text style={styles.title}>Debug</Text>
-                <DebugInstructions />
-            </View>
-        </ScrollView>
-    </SafeAreaView>
-);
+    return (
+        <View style={styles.container}>
+            <NewAppScreen
+                templateFileName="App.tsx"
+                safeAreaInsets={safeAreaInsets}
+            />
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
-    title: {
-        fontSize: 24,
-        fontWeight: '600',
-    },
-    bold: {
-        fontWeight: '700',
+    container: {
+        flex: 1,
     },
 });
 
