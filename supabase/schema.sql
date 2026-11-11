@@ -17,12 +17,21 @@ alter table public.word_lookups enable row level security;
 grant select, insert on public.word_lookups to authenticated;
 revoke all on public.word_lookups from anon;
 
+drop policy if exists "Users can read their own word lookups" on public.word_lookups;
+drop policy if exists "Users can add their own word lookups" on public.word_lookups;
+
 create policy "Users can read their own word lookups"
   on public.word_lookups for select
   to authenticated
-  using ((select auth.uid()) = user_id);
+  using (
+    (select auth.uid()) = user_id
+    and coalesce((select (auth.jwt()->>'is_anonymous')::boolean), true) = false
+  );
 
 create policy "Users can add their own word lookups"
   on public.word_lookups for insert
   to authenticated
-  with check ((select auth.uid()) = user_id);
+  with check (
+    (select auth.uid()) = user_id
+    and coalesce((select (auth.jwt()->>'is_anonymous')::boolean), true) = false
+  );

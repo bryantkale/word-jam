@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,11 +13,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getWordHistory, fetchDefinition, saveWord } from '@/services/wordbook';
+import {
+  clearQueuedWord,
+  fetchDefinition,
+  getWordHistory,
+  queueWordForSaving,
+  saveQueuedWord,
+  saveWord,
+} from '@/services/wordbook';
 import { isSupabaseConfigured } from '@/services/supabase';
 import { refreshDailyRemindersIfEnabled } from '@/services/reminders';
 import type { DictionaryEntry, SavedWord } from '@/types/word';
 import { normalizeDefinitionPhrase } from '@/utils/word-sentences';
+import { getUserDisplayName } from '@/services/google-auth';
+import { useAuth } from '@/providers/auth-provider';
 
 const colors = {
   background: '#F7F6F0',
@@ -91,15 +101,36 @@ function RecentWord({ word }: { word: SavedWord }) {
 }
 
 export default function HomeScreen() {
+  const {
+    user,
+    isLoading: isAuthLoading,
+    isSigningIn,
+    isAuthenticated,
+    authError,
+    clearAuthError,
+    signIn,
+    signOut,
+  } = useAuth();
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<DictionaryEntry | null>(null);
   const [history, setHistory] = useState<SavedWord[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedWordId, setSavedWordId] = useState('');
   const [message, setMessage] = useState('');
 
   const loadRecentWords = useCallback(async () => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured() || !isAuthenticated) {
+      setHistory([]);
+      return;
+    }
     try {
+      if (Platform.OS === 'web') {
+        const queuedWord = await saveQueuedWord();
+        if (queuedWord) {
+          setMessage(`“${queuedWord.word}” was saved to your words.`);
+        }
+      }
       const recentWords = await getWordHistory();
       setHistory(recentWords);
       try {
@@ -114,7 +145,7 @@ export default function HomeScreen() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load your saved words.');
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useFocusEffect(
     useCallback(() => {
@@ -130,34 +161,86 @@ export default function HomeScreen() {
     setIsSearching(true);
     setMessage('');
     setResult(null);
+    setSavedWordId('');
 
     try {
       const entry = await fetchDefinition(searchTerm);
       setResult(entry);
-
-      try {
-        const savedWord = await saveWord(entry);
-        setHistory(current => [savedWord, ...current.filter(word => word.id !== savedWord.id)].slice(0, 5));
-        try {
-          await refreshDailyRemindersIfEnabled([savedWord, ...history]);
-        } catch (error) {
-          setMessage(
-            `Word saved, but daily reminders could not be refreshed: ${
-              error instanceof Error ? error.message : 'Please try again.'
-            }`,
-          );
-        }
-      } catch (error) {
-        setMessage(
-          `Definition found, but it wasn't saved: ${
-            error instanceof Error ? error.message : 'Please check your Supabase connection.'
-          }`,
-        );
-      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
     } finally {
       setIsSearching(false);
+    }
+  };
+
+  const handleSignIn = async () => {
+    clearAuthError();
+    try {
+      await signIn();
+    } catch {
+      return;
+    }
+  };
+
+  const handleSignOut = async () => {
+    clearAuthError();
+    try {
+      await signOut();
+      setHistory([]);
+      setSavedWordId('');
+    } catch {
+      return;
+    }
+  };
+
+  const handleSaveWord = async () => {
+    if (!result || isSaving) return;
+    setIsSaving(true);
+    setMessage('');
+
+    try {
+      if (!isAuthenticated) {
+        if (Platform.OS === 'web') {
+          await queueWordForSaving(result);
+          await signIn();
+          return;
+        }
+        const signedIn = await signIn();
+        if (!signedIn) {
+          setMessage('Sign-in was cancelled. The word is still here if you want to try again.');
+          return;
+        }
+      }
+
+      const savedWord = await saveWord(result);
+      setSavedWordId(savedWord.id);
+      setHistory(current =>
+        [savedWord, ...current.filter(word => word.id !== savedWord.id)].slice(0, 100),
+      );
+      await clearQueuedWord();
+      try {
+        await refreshDailyRemindersIfEnabled([savedWord, ...history]);
+      } catch (error) {
+        setMessage(
+          `Word saved, but daily reminders could not be refreshed: ${
+            error instanceof Error ? error.message : 'Please try again.'
+          }`,
+        );
+      }
+    } catch (error) {
+      let saveError = error instanceof Error ? error.message : 'Could not save this word.';
+      if (Platform.OS === 'web' && !isAuthenticated) {
+        try {
+          await clearQueuedWord();
+        } catch (cleanupError) {
+          saveError += ` The pending save could not be cleared: ${
+            cleanupError instanceof Error ? cleanupError.message : 'Please try again.'
+          }`;
+        }
+      }
+      setMessage(saveError);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -174,10 +257,36 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.brandName}>WORDJAM</Text>
           </View>
-          <View style={styles.streakPill}>
-            <Text style={styles.streakSpark}>✳</Text>
-            <Text style={styles.streakText}>A little every day</Text>
-          </View>
+          {isAuthenticated && user ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={isAuthLoading}
+              onPress={() => void handleSignOut()}
+              style={({ pressed }) => [styles.accountButton, pressed && styles.pressed]}>
+              <Text numberOfLines={1} style={styles.accountName}>
+                {getUserDisplayName(user)}
+              </Text>
+              <Text style={styles.accountAction}>Sign out</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sign in with Google"
+              disabled={isAuthLoading || isSigningIn || !isSupabaseConfigured()}
+              onPress={() => void handleSignIn()}
+              style={({ pressed }) => [
+                styles.accountButton,
+                (isAuthLoading || isSigningIn || !isSupabaseConfigured()) &&
+                  styles.searchButtonDisabled,
+                pressed && styles.pressed,
+              ]}>
+              {isSigningIn ? (
+                <ActivityIndicator color={colors.deepGreen} size="small" />
+              ) : (
+                <Text style={styles.accountAction}>Sign in</Text>
+              )}
+            </Pressable>
+          )}
         </View>
 
         <View style={styles.hero}>
@@ -222,17 +331,44 @@ export default function HomeScreen() {
 
         {!isSupabaseConfigured() ? (
           <Text style={styles.setupHint}>
-            Add your Supabase keys to .env to save words and build your history.
+            Add your Supabase keys to .env to sign in and save words.
           </Text>
         ) : null}
 
-        {message ? (
+        {authError || message ? (
           <View style={styles.messageBox} accessibilityLiveRegion="polite">
-            <Text style={styles.messageText}>{message}</Text>
+            <Text style={styles.messageText}>{authError || message}</Text>
           </View>
         ) : null}
 
-        {result ? <WordCard entry={result} /> : null}
+        {result ? (
+          <>
+            <WordCard entry={result} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={savedWordId ? 'Word saved' : 'Save word to your account'}
+              disabled={isSaving || Boolean(savedWordId) || !isSupabaseConfigured()}
+              onPress={() => void handleSaveWord()}
+              style={({ pressed }) => [
+                styles.saveButton,
+                (isSaving || savedWordId || !isSupabaseConfigured()) &&
+                  styles.searchButtonDisabled,
+                pressed && styles.pressed,
+              ]}>
+              {isSaving ? (
+                <ActivityIndicator color={colors.paper} size="small" />
+              ) : (
+                <Text style={styles.saveButtonText}>
+                  {savedWordId
+                    ? 'Saved to your words'
+                    : isAuthenticated
+                      ? 'Save to my words'
+                      : 'Continue with Google to save'}
+                </Text>
+              )}
+            </Pressable>
+          </>
+        ) : null}
 
         <View style={styles.sectionHeader}>
           <View>
@@ -259,9 +395,13 @@ export default function HomeScreen() {
             <View style={styles.emptyIllustration}>
               <Text style={styles.emptyIllustrationText}>Aa</Text>
             </View>
-            <Text style={styles.emptyTitle}>Your next favorite word is out there.</Text>
+            <Text style={styles.emptyTitle}>
+              {isAuthenticated ? 'Your next favorite word is out there.' : 'Words are yours to find.'}
+            </Text>
             <Text style={styles.emptyDescription}>
-              Look up a word and it’ll be waiting for you here.
+              {isAuthenticated
+                ? 'Look up a word and save it to your collection.'
+                : 'Look up words freely. Sign in with Google whenever you want to save one.'}
             </Text>
           </View>
         )}
@@ -337,6 +477,31 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 11,
     fontWeight: '600',
+  },
+  accountButton: {
+    maxWidth: 155,
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.paper,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  accountName: {
+    flexShrink: 1,
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  accountAction: {
+    color: colors.deepGreen,
+    fontSize: 11,
+    fontWeight: '700',
   },
   hero: {
     paddingTop: 34,
@@ -453,6 +618,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     padding: 20,
+  },
+  saveButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: colors.deepGreen,
+    marginTop: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  saveButtonText: {
+    color: colors.paper,
+    fontSize: 13,
+    fontWeight: '700',
   },
   wordHeading: {
     flexDirection: 'row',

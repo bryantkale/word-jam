@@ -1,3 +1,4 @@
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -8,9 +9,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useAuth } from '@/providers/auth-provider';
+import { getUserDisplayName } from '@/services/google-auth';
 import {
   disableDailyReminders,
   enableDailyReminders,
@@ -43,28 +45,39 @@ function getDayLabel(date: string) {
 }
 
 export default function HistoryScreen() {
+  const {
+    user,
+    isLoading: isAuthLoading,
+    isSigningIn,
+    isAuthenticated,
+    authError,
+    clearAuthError,
+    signIn,
+    signOut,
+  } = useAuth();
   const [history, setHistory] = useState<SavedWord[]>([]);
   const [remindersEnabled, setRemindersEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isChangingReminder, setIsChangingReminder] = useState(false);
   const [error, setError] = useState('');
-
   const loadHistory = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      if (isSupabaseConfigured()) {
+      if (isAuthenticated && isSupabaseConfigured()) {
         setHistory(await getWordHistory());
       } else {
         setHistory([]);
       }
-      setRemindersEnabled(await isDailyReminderEnabled());
+      setRemindersEnabled(
+        isAuthenticated ? await isDailyReminderEnabled() : false,
+      );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load your word journal.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useFocusEffect(
     useCallback(() => {
@@ -91,6 +104,26 @@ export default function HistoryScreen() {
     }
   };
 
+  const handleSignIn = async () => {
+    clearAuthError();
+    try {
+      await signIn();
+    } catch {
+      return;
+    }
+  };
+
+  const handleSignOut = async () => {
+    clearAuthError();
+    try {
+      await signOut();
+      setHistory([]);
+      setRemindersEnabled(false);
+    } catch {
+      return;
+    }
+  };
+
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - 6);
@@ -103,8 +136,21 @@ export default function HistoryScreen() {
           <Text style={styles.eyebrow}>YOUR WORD JOURNAL</Text>
           <Text style={styles.title}>Words worth{'\n'}remembering.</Text>
           <Text style={styles.subtitle}>
-            Every word you look up gets a little place in your collection.
+            {isAuthenticated
+              ? 'Every word you save gets a little place in your collection.'
+              : 'Look up words freely. Sign in when you want to keep them.'}
           </Text>
+          {isAuthenticated && user ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void handleSignOut()}
+              style={({ pressed }) => [styles.accountButton, pressed && styles.pressed]}>
+              <Text numberOfLines={1} style={styles.accountName}>
+                {getUserDisplayName(user)}
+              </Text>
+              <Text style={styles.accountAction}>Sign out</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.statsCard}>
@@ -135,15 +181,21 @@ export default function HistoryScreen() {
               accessibilityRole="switch"
               accessibilityState={{
                 checked: remindersEnabled,
-                disabled: history.length === 0 || Platform.OS === 'web',
+                disabled: history.length === 0 || Platform.OS === 'web' || !isAuthenticated,
               }}
               accessibilityLabel="Daily word reminders"
-              disabled={history.length === 0 || isChangingReminder || Platform.OS === 'web'}
+              disabled={
+                history.length === 0 ||
+                isChangingReminder ||
+                Platform.OS === 'web' ||
+                !isAuthenticated
+              }
               onPress={() => void toggleReminders()}
               style={[
                 styles.switchTrack,
                 remindersEnabled && styles.switchTrackOn,
-                (history.length === 0 || isChangingReminder) && styles.switchDisabled,
+                (history.length === 0 || isChangingReminder || !isAuthenticated) &&
+                styles.switchDisabled,
               ]}>
               {isChangingReminder ? (
                 <ActivityIndicator color={colors.deepGreen} size="small" />
@@ -158,9 +210,11 @@ export default function HistoryScreen() {
               ? 'You’re all set. Your next word arrives at 9:00 AM.'
               : Platform.OS === 'web'
                 ? 'Daily reminders are available in the iOS and Android apps.'
-                : history.length === 0
-                  ? 'Look up a word first to add it to your daily reminders.'
-                : 'Turn on reminders to practice words you have looked up.'}
+                : !isAuthenticated
+                  ? 'Sign in with Google to save words and create reminders.'
+                  : history.length === 0
+                    ? 'Look up a word first to add it to your daily reminders.'
+                    : 'Turn on reminders to practice words you have looked up.'}
           </Text>
         </View>
 
@@ -180,9 +234,48 @@ export default function HistoryScreen() {
               lookups here.
             </Text>
           </View>
-        ) : isLoading ? (
+        ) : isAuthLoading || isLoading ? (
           <View style={styles.loadingCard}>
             <ActivityIndicator color={colors.deepGreen} />
+          </View>
+        ) : authError ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Could not sign in</Text>
+            <Text style={styles.emptyText}>{authError}</Text>
+            {!isAuthenticated ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={isSigningIn}
+                onPress={() => void handleSignIn()}
+                style={styles.retryButton}>
+                <Text style={styles.retryText}>
+                  {isSigningIn ? 'Connecting…' : 'Try Google sign-in again'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : !isAuthenticated ? (
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyMark}>
+              <Text style={styles.emptyMarkText}>Aa</Text>
+            </View>
+            <Text style={styles.emptyTitle}>Keep your words with you.</Text>
+            <Text style={styles.emptyText}>
+              Sign in with Google to save your lookups to your account and access them on your
+              other devices.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sign in with Google"
+              disabled={isSigningIn}
+              onPress={() => void handleSignIn()}
+              style={[styles.retryButton, isSigningIn && styles.switchDisabled]}>
+              {isSigningIn ? (
+                <ActivityIndicator color={colors.paper} size="small" />
+              ) : (
+                <Text style={styles.retryText}>Continue with Google</Text>
+              )}
+            </Pressable>
           </View>
         ) : error && history.length === 0 ? (
           <View style={styles.emptyCard}>
@@ -276,6 +369,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     marginTop: 10,
+  },
+  accountButton: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.paper,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 12,
+  },
+  accountName: {
+    flexShrink: 1,
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  accountAction: {
+    color: colors.deepGreen,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  pressed: {
+    opacity: 0.75,
   },
   statsCard: {
     flexDirection: 'row',

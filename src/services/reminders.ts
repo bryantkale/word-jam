@@ -117,7 +117,11 @@ export async function enableDailyReminders(words: SavedWord[]) {
 }
 
 export async function disableDailyReminders() {
-  await cancelScheduledWordReminders();
+  if (Platform.OS === 'web') {
+    await AsyncStorage.removeItem(REMINDER_IDS_KEY);
+  } else {
+    await cancelScheduledWordReminders();
+  }
   await AsyncStorage.removeItem(REMINDER_ENABLED_KEY);
 }
 
