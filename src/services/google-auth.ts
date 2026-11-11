@@ -7,8 +7,14 @@ import { disableDailyReminders } from '@/services/reminders';
 import { getSupabaseClient } from '@/services/supabase';
 import { clearQueuedWord } from '@/services/wordbook';
 
+const APP_SCHEME = 'com.supabase';
+
 function getCallbackUrl() {
-  return Linking.createURL(Platform.OS === 'web' ? '/' : 'auth/callback');
+  if (Platform.OS === 'web') {
+    return new URL('/', window.location.origin).toString();
+  }
+
+  return Linking.createURL('', { scheme: APP_SCHEME });
 }
 
 function getCallbackParams(callbackUrl: string) {
@@ -47,6 +53,41 @@ async function applyOAuthCallback(callbackUrl: string) {
   throw new Error('Google sign-in did not return a valid session. Please try again.');
 }
 
+let callbackKeyInProgress: string | null = null;
+let callbackPromise: Promise<void> | null = null;
+
+export async function completeGoogleOAuthCallback(callbackUrl: string): Promise<boolean> {
+  const params = getCallbackParams(callbackUrl);
+  const hasOAuthResponse = [
+    'code',
+    'access_token',
+    'error',
+    'error_description',
+    'error_code',
+  ].some(key => params.has(key));
+  if (!hasOAuthResponse) return false;
+
+  const callbackKey = params.get('code') ?? params.get('access_token') ?? callbackUrl;
+  if (callbackKeyInProgress === callbackKey && callbackPromise) {
+    await callbackPromise;
+    return true;
+  }
+
+  callbackKeyInProgress = callbackKey;
+  const currentCallbackPromise = applyOAuthCallback(callbackUrl);
+  callbackPromise = currentCallbackPromise;
+  try {
+    await currentCallbackPromise;
+    return true;
+  } catch (error) {
+    if (callbackKeyInProgress === callbackKey && callbackPromise === currentCallbackPromise) {
+      callbackKeyInProgress = null;
+      callbackPromise = null;
+    }
+    throw error;
+  }
+}
+
 export async function signInWithGoogle(): Promise<boolean> {
   const supabase = getSupabaseClient();
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -75,7 +116,10 @@ export async function signInWithGoogle(): Promise<boolean> {
 
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
   if (result.type !== 'success') return false;
-  await applyOAuthCallback(result.url);
+  const callbackCompleted = await completeGoogleOAuthCallback(result.url);
+  if (!callbackCompleted) {
+    throw new Error('Google sign-in returned without a session. Please try again.');
+  }
   return true;
 }
 

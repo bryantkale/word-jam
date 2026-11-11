@@ -8,8 +8,8 @@ Wordjam helps you look up English words, see their definitions and example sente
 2. Copy `.env.example` to `.env` and add your Supabase project URL and publishable key (or anon key).
 3. Run or re-run the SQL in [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL Editor.
 4. Configure Google as an Auth provider in Supabase (steps below).
-5. Add `wordjam://auth/callback` to Supabase Auth's allowed redirect URLs.
-6. Start the app with `npx expo start` or use a development build for device testing.
+5. Add `com.supabase://**` to Supabase Auth's allowed redirect URLs. The app uses `com.supabase://` as its native callback URL.
+6. Run `npx expo run:ios` to build and open the iOS simulator, or start the development server with `npx expo start`.
 
 The app uses the free Dictionary API at `dictionaryapi.dev` for definitions and examples. A word is only added to the journal after Supabase confirms it was saved.
 
@@ -32,8 +32,8 @@ Looking up definitions does not require an account. Sign in with Google to save 
 
 1. In Google Cloud Console, create an OAuth consent screen and OAuth client credentials for your app. Add the required iOS bundle ID and Android package name/SHA-1 fingerprints for native builds.
 2. In Supabase Dashboard, open **Authentication → Providers → Google**, enable the provider, and enter the Google web client ID and client secret. Add the native client IDs there as well.
-3. In **Authentication → URL Configuration → Redirect URLs**, allow `wordjam://auth/callback` for iOS and Android. For web, add your deployed site URL and local development URL; web OAuth returns to the site root.
-4. If you use Expo Go for development, also allow its redirect URL (typically `exp://<your-dev-host>/--/auth/callback`). A development build with the `wordjam` scheme is recommended for testing the production-style callback.
+3. In **Authentication → URL Configuration → Redirect URLs**, allow `com.supabase://**` for iOS and Android. For web, allow the exact local development origin you use (for example, `http://localhost:8094/`) and your deployed site URL; web OAuth returns to the site root.
+4. For Expo Go, also allow its development redirect URL (typically `exp://<your-dev-host>:8081/--/`). A development build with the `com.supabase` scheme is recommended for testing the production-style callback.
 
 In the Google web OAuth client, add your Supabase project's Auth callback URL (shown in the Supabase Google provider setup page) as an **Authorized redirect URI**. Add your web app origin as an **Authorized JavaScript origin** if you will use Google sign-in on web.
 

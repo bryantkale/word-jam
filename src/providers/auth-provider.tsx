@@ -8,9 +8,15 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import * as Linking from 'expo-linking';
+import { Platform } from 'react-native';
 
 import { isSupabaseConfigured, getSupabaseClient } from '@/services/supabase';
-import { signInWithGoogle, signOutFromGoogle } from '@/services/google-auth';
+import {
+  completeGoogleOAuthCallback,
+  signInWithGoogle,
+  signOutFromGoogle,
+} from '@/services/google-auth';
 
 type AuthContextValue = {
   user: User | null;
@@ -30,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState('');
+  const callbackUrl = Linking.useLinkingURL();
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -70,6 +77,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !callbackUrl) return;
+
+    let active = true;
+    void completeGoogleOAuthCallback(callbackUrl).catch(error => {
+      if (active) {
+        setAuthError(
+          error instanceof Error ? error.message : 'Google sign-in could not be completed.',
+        );
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [callbackUrl]);
 
   const signIn = useCallback(async () => {
     setIsSigningIn(true);
