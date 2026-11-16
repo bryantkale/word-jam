@@ -9,42 +9,60 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: '#541414',
+    background: '#FFF8F7',
+    backgroundElement: '#FFFEFD',
+    backgroundSelected: '#FCE8E7',
+    textSecondary: '#80696A',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#FFF4F3',
+    background: '#1C1114',
+    backgroundElement: '#2A1D20',
+    backgroundSelected: '#4A292D',
+    textSecondary: '#D5BABB',
   },
+} as const;
+
+export const Palette = {
+  burgundy: '#541414',
+  coral: '#F36363',
+  rose: '#EF8182',
+  stone: '#D0D0C8',
+  background: '#FFF8F7',
+  paper: '#FFFEFD',
+  ink: '#35191B',
+  muted: '#80696A',
+  line: '#EADCDD',
+  softRose: '#FCE8E7',
+  softStone: '#F5F2F1',
+  errorBackground: '#FFF0EF',
+  errorText: '#9A4146',
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
+    sans: 'Helvetica Neue',
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
-  default: {
-    sans: 'normal',
+  android: {
+    sans: 'sans-serif',
     serif: 'serif',
-    rounded: 'normal',
+    rounded: 'sans-serif-rounded',
+    mono: 'monospace',
+  },
+  default: {
+    sans: 'Helvetica, Arial, sans-serif',
+    serif: 'serif',
+    rounded: 'sans-serif',
     mono: 'monospace',
   },
   web: {
-    sans: 'var(--font-display)',
+    sans: 'Helvetica, Arial, sans-serif',
     serif: 'var(--font-serif)',
     rounded: 'var(--font-rounded)',
     mono: 'var(--font-mono)',

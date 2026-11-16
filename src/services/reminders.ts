@@ -6,7 +6,14 @@ import { normalizeDefinitionPhrase } from '@/utils/word-sentences';
 
 const REMINDER_IDS_KEY = 'word-jam-reminder-ids';
 const REMINDER_ENABLED_KEY = 'word-jam-reminder-enabled';
+const REMINDER_SCHEDULE_KEY = 'word-jam-reminder-schedule';
 const REMINDER_DAYS = 7;
+
+export type NextReminder = {
+  word: string;
+  sentence: string;
+  date: string;
+};
 
 function getPracticeSentence(word: SavedWord, dayIndex: number) {
   if (dayIndex < word.examples.length) return word.examples[dayIndex];
@@ -30,6 +37,7 @@ async function cancelScheduledWordReminders() {
   const ids = storedIds ? (JSON.parse(storedIds) as string[]) : [];
   await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
   await AsyncStorage.removeItem(REMINDER_IDS_KEY);
+  await AsyncStorage.removeItem(REMINDER_SCHEDULE_KEY);
 }
 
 async function scheduleWordReminders(words: SavedWord[]) {
@@ -47,6 +55,7 @@ async function scheduleWordReminders(words: SavedWord[]) {
   const previousIds = storedIds ? (JSON.parse(storedIds) as string[]) : [];
   const Notifications = await import('expo-notifications');
   const ids: string[] = [];
+  const schedule: NextReminder[] = [];
   const now = new Date();
   const firstReminderOffset = now.getHours() < 9 ? 0 : 1;
 
@@ -70,6 +79,7 @@ async function scheduleWordReminders(words: SavedWord[]) {
         },
       });
       ids.push(id);
+      schedule.push({ word: word.word, sentence: getPracticeSentence(word, day), date: date.toISOString() });
     }
   } catch (error) {
     await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
@@ -77,6 +87,7 @@ async function scheduleWordReminders(words: SavedWord[]) {
   }
 
   await AsyncStorage.setItem(REMINDER_IDS_KEY, JSON.stringify(ids));
+  await AsyncStorage.setItem(REMINDER_SCHEDULE_KEY, JSON.stringify(schedule));
   await Promise.all(previousIds.map(id => Notifications.cancelScheduledNotificationAsync(id)));
 }
 
@@ -119,6 +130,7 @@ export async function enableDailyReminders(words: SavedWord[]) {
 export async function disableDailyReminders() {
   if (Platform.OS === 'web') {
     await AsyncStorage.removeItem(REMINDER_IDS_KEY);
+    await AsyncStorage.removeItem(REMINDER_SCHEDULE_KEY);
   } else {
     await cancelScheduledWordReminders();
   }
@@ -128,5 +140,22 @@ export async function disableDailyReminders() {
 export async function refreshDailyRemindersIfEnabled(words: SavedWord[]) {
   if (Platform.OS !== 'web' && (await isDailyReminderEnabled())) {
     await scheduleWordReminders(words);
+  }
+}
+
+/** The next upcoming reminder from the schedule the notifications were created with. */
+export async function getNextReminder(): Promise<NextReminder | null> {
+  if (Platform.OS === 'web' || !(await isDailyReminderEnabled())) return null;
+  try {
+    const stored = await AsyncStorage.getItem(REMINDER_SCHEDULE_KEY);
+    const schedule = stored ? (JSON.parse(stored) as NextReminder[]) : [];
+    const now = Date.now();
+    return (
+      schedule
+        .filter(item => new Date(item.date).getTime() > now)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] ?? null
+    );
+  } catch {
+    return null;
   }
 }

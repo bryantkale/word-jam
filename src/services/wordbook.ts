@@ -28,9 +28,33 @@ type WordRow = {
   pronunciation: string | null;
   part_of_speech: string | null;
   definition: string;
-  examples: string[] | null;
-  looked_up_at: string;
+  examples: unknown;
+  looked_up_at: unknown;
 };
+
+/** The examples column may arrive as an array, a JSON string, or null. Never leak raw JSON like "[". */
+function parseExamples(value: unknown): string[] {
+  let list: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      list = JSON.parse(value);
+    } catch {
+      list = value.trim() ? [value] : [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item): item is string => typeof item === 'string')
+    .map(item => item.trim())
+    .filter(item => item.length > 1 && item !== '[' && item !== ']');
+}
+
+/** Returns an ISO string, or '' when the stored timestamp cannot be parsed. */
+function parseLookedUpAt(value: unknown): string {
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
 
 function mapWordRow(row: WordRow): SavedWord {
   return {
@@ -39,8 +63,8 @@ function mapWordRow(row: WordRow): SavedWord {
     pronunciation: row.pronunciation,
     partOfSpeech: row.part_of_speech,
     definition: row.definition,
-    examples: row.examples ?? [],
-    lookedUpAt: row.looked_up_at,
+    examples: parseExamples(row.examples),
+    lookedUpAt: parseLookedUpAt(row.looked_up_at),
   };
 }
 

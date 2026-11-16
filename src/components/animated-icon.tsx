@@ -1,9 +1,11 @@
-import { Image } from 'expo-image';
 import * as SplashScreen from 'expo-splash-screen';
 import { useState } from 'react';
 import { Dimensions, StyleSheet, View } from 'react-native';
 import Animated, { Easing, Keyframe } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+
+import { AppText } from '@/components/app-text';
+import { Palette } from '@/constants/theme';
 
 const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
 const DURATION = 600;
@@ -33,7 +35,11 @@ export function AnimatedSplashOverlay() {
     },
   });
 
-  const image = <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />;
+  const image = (
+    <View style={styles.splashMark}>
+      <AppText style={styles.splashMarkText}>w</AppText>
+    </View>
+  );
 
   return animate ? (
     <Animated.View
@@ -98,13 +104,11 @@ const glowKeyframe = new Keyframe({
 export function AnimatedIcon() {
   return (
     <View style={styles.iconContainer}>
-      <Animated.View entering={glowKeyframe.duration(60 * 1000 * 4)} style={styles.glow}>
-        <Image style={styles.glow} source={require('@/assets/images/logo-glow.png')} />
-      </Animated.View>
+      <Animated.View entering={glowKeyframe.duration(60 * 1000 * 4)} style={styles.glow} />
 
       <Animated.View entering={keyframe.duration(DURATION)} style={styles.background} />
       <Animated.View style={styles.imageContainer} entering={logoKeyframe.duration(DURATION)}>
-        <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />
+        <AppText style={styles.iconMark}>w</AppText>
       </Animated.View>
     </View>
   );
@@ -119,6 +123,8 @@ const styles = StyleSheet.create({
     width: 201,
     height: 201,
     position: 'absolute',
+    borderRadius: 101,
+    backgroundColor: Palette.softRose,
   },
   iconContainer: {
     justifyContent: 'center',
@@ -127,22 +133,38 @@ const styles = StyleSheet.create({
     height: 128,
     zIndex: 100,
   },
-  image: {
-    width: 76,
-    height: 71,
+  iconMark: {
+    color: Palette.burgundy,
+    fontSize: 88,
+    fontWeight: '800',
+    lineHeight: 100,
   },
   background: {
     borderRadius: 40,
-    experimental_backgroundImage: `linear-gradient(180deg, #3C9FFE, #0274DF)`,
+    experimental_backgroundImage: `linear-gradient(180deg, ${Palette.coral}, ${Palette.rose})`,
     width: 128,
     height: 128,
     position: 'absolute',
   },
   splashOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: '#208AEF',
+    backgroundColor: Palette.background,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
+  },
+  splashMark: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 32,
+    backgroundColor: Palette.rose,
+  },
+  splashMarkText: {
+    color: Palette.burgundy,
+    fontSize: 68,
+    fontWeight: '800',
+    lineHeight: 78,
   },
 });

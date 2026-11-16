@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
 import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -7,12 +7,31 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppMenu } from '@/components/app-menu';
+import { AppText as Text } from '@/components/app-text';
+import { HighlightedSentence, MonoLabel } from '@/components/design';
+import { ScreenBackdrop } from '@/components/screen-backdrop';
+import {
+  DEFAULT_CONTENT_INSET,
+  NOTEBOOK_CONTENT_INSET,
+  RULE_SPACING,
+  sticker,
+  type BackgroundColors,
+} from '@/constants/backgrounds';
+import { AppFonts } from '@/constants/fonts';
+import { useAuth } from '@/providers/auth-provider';
+import { useBackground } from '@/providers/background-provider';
+import {
+  getNextReminder,
+  refreshDailyRemindersIfEnabled,
+  type NextReminder,
+} from '@/services/reminders';
+import { isSupabaseConfigured } from '@/services/supabase';
 import {
   clearQueuedWord,
   fetchDefinition,
@@ -21,35 +40,93 @@ import {
   saveQueuedWord,
   saveWord,
 } from '@/services/wordbook';
-import { isSupabaseConfigured } from '@/services/supabase';
-import { refreshDailyRemindersIfEnabled } from '@/services/reminders';
 import type { DictionaryEntry, SavedWord } from '@/types/word';
 import { normalizeDefinitionPhrase } from '@/utils/word-sentences';
-import { getUserDisplayName } from '@/services/google-auth';
-import { useAuth } from '@/providers/auth-provider';
 
-const colors = {
-  background: '#F7F6F0',
-  paper: '#FFFFFF',
-  ink: '#20231D',
-  muted: '#777B70',
-  line: '#E8E8DF',
-  green: '#D8EF86',
-  deepGreen: '#334927',
-  orange: '#F1A265',
-  paleGreen: '#EEF4DF',
-};
+function useStyles() {
+  const { colors } = useBackground();
+  return useMemo(() => createStyles(colors), [colors]);
+}
 
-function SearchIcon() {
+function formatNudgeTime(isoDate: string) {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return 'NEXT NUDGE';
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+  const day =
+    date.toDateString() === today.toDateString()
+      ? 'TODAY'
+      : date.toDateString() === tomorrow.toDateString()
+        ? 'TOMORROW'
+        : date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: false });
+  return `NEXT NUDGE · ${day} ${time}`;
+}
+
+function SearchIcon({ color }: { color: string }) {
   return (
-    <View style={styles.searchIcon}>
-      <View style={styles.searchCircle} />
-      <View style={styles.searchHandle} />
+    <View style={{ width: 20, height: 20 }}>
+      <View
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 7,
+          borderWidth: 2,
+          borderColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 12,
+          top: 13,
+          width: 2,
+          height: 7,
+          backgroundColor: color,
+          transform: [{ rotate: '-45deg' }],
+        }}
+      />
+    </View>
+  );
+}
+
+function BellIcon({ color }: { color: string }) {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ width: 20, height: 22, alignItems: 'center' }}>
+      <View
+        style={{
+          width: 14,
+          height: 14,
+          borderTopLeftRadius: 7,
+          borderTopRightRadius: 7,
+          borderWidth: 2,
+          borderBottomWidth: 0,
+          borderColor: color,
+        }}
+      />
+      <View style={{ width: 20, height: 2, borderRadius: 1, backgroundColor: color }} />
+      <View
+        style={{
+          width: 6,
+          height: 3,
+          marginTop: 1,
+          borderBottomLeftRadius: 3,
+          borderBottomRightRadius: 3,
+          backgroundColor: color,
+        }}
+      />
     </View>
   );
 }
 
 function WordCard({ entry }: { entry: DictionaryEntry }) {
+  const styles = useStyles();
+  const sentence =
+    entry.examples[0] ?? `“${entry.word}” means ${normalizeDefinitionPhrase(entry.definition)}.`;
   return (
     <View style={styles.definitionCard}>
       <View style={styles.wordHeading}>
@@ -59,58 +136,49 @@ function WordCard({ entry }: { entry: DictionaryEntry }) {
             <Text style={styles.pronunciation}>{entry.pronunciation}</Text>
           ) : null}
         </View>
-        {entry.partOfSpeech ? (
-          <Text style={styles.partOfSpeech}>{entry.partOfSpeech}</Text>
-        ) : null}
+        {entry.partOfSpeech ? <Text style={styles.partOfSpeech}>{entry.partOfSpeech}</Text> : null}
       </View>
       <View style={styles.cardDivider} />
-      <Text style={styles.sectionLabel}>THE MEANING</Text>
+      <MonoLabel>The meaning</MonoLabel>
       <Text style={styles.definitionText}>{entry.definition}</Text>
-      {entry.examples.length > 0 ? (
-        <View style={styles.exampleBox}>
-          <Text style={styles.exampleLabel}>IN A SENTENCE</Text>
-          <Text style={styles.exampleText}>“{entry.examples[0]}”</Text>
-        </View>
-      ) : (
-        <View style={styles.exampleBox}>
-          <Text style={styles.exampleLabel}>IN A SENTENCE</Text>
-          <Text style={styles.exampleText}>
-            “{entry.word}” means {normalizeDefinitionPhrase(entry.definition)}.
-          </Text>
-        </View>
-      )}
+      <View style={styles.exampleBox}>
+        <MonoLabel>In a sentence</MonoLabel>
+        <HighlightedSentence sentence={sentence} word={entry.word} size={19} style={styles.exampleText} />
+      </View>
     </View>
   );
 }
 
-function RecentWord({ word }: { word: SavedWord }) {
+function RecentWord({ word, fill }: { word: SavedWord; fill: string }) {
+  const styles = useStyles();
   return (
-    <View style={styles.recentRow}>
-      <View style={styles.recentWordIcon}>
-        <Text style={styles.recentWordInitial}>{word.word.charAt(0).toUpperCase()}</Text>
-      </View>
-      <View style={styles.recentCopy}>
-        <Text style={styles.recentWord}>{word.word}</Text>
-        <Text numberOfLines={1} style={styles.recentDefinition}>
-          {word.definition}
-        </Text>
-      </View>
-      <Text style={styles.recentArrow}>›</Text>
+    <View
+      accessible
+      accessibilityLabel={`${word.word}${word.partOfSpeech ? `, ${word.partOfSpeech}` : ''}`}
+      style={[styles.recentRow, { backgroundColor: fill }]}>
+      <Text numberOfLines={1} style={styles.recentWord}>
+        {word.word}
+      </Text>
+      {word.partOfSpeech ? (
+        <MonoLabel color="#111111">{abbreviatePartOfSpeech(word.partOfSpeech)}</MonoLabel>
+      ) : null}
     </View>
   );
+}
+
+function abbreviatePartOfSpeech(partOfSpeech: string) {
+  const value = partOfSpeech.toLowerCase();
+  if (value.startsWith('adj')) return 'adj.';
+  if (value.startsWith('adv')) return 'adv.';
+  if (value.startsWith('verb')) return 'verb';
+  return value;
 }
 
 export default function HomeScreen() {
-  const {
-    user,
-    isLoading: isAuthLoading,
-    isSigningIn,
-    isAuthenticated,
-    authError,
-    clearAuthError,
-    signIn,
-    signOut,
-  } = useAuth();
+  const { isAuthenticated, authError, signIn } = useAuth();
+  const { colors, notebook } = useBackground();
+  const styles = useStyles();
+  const [nextReminder, setNextReminder] = useState<NextReminder | null>(null);
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<DictionaryEntry | null>(null);
   const [history, setHistory] = useState<SavedWord[]>([]);
@@ -122,6 +190,7 @@ export default function HomeScreen() {
   const loadRecentWords = useCallback(async () => {
     if (!isSupabaseConfigured() || !isAuthenticated) {
       setHistory([]);
+      setNextReminder(null);
       return;
     }
     try {
@@ -135,10 +204,10 @@ export default function HomeScreen() {
       setHistory(recentWords);
       try {
         await refreshDailyRemindersIfEnabled(recentWords);
+        setNextReminder(await getNextReminder());
       } catch (error) {
         setMessage(
-          `Daily reminders could not be refreshed: ${
-            error instanceof Error ? error.message : 'Please try again.'
+          `Daily reminders could not be refreshed: ${error instanceof Error ? error.message : 'Please try again.'
           }`,
         );
       }
@@ -173,26 +242,6 @@ export default function HomeScreen() {
     }
   };
 
-  const handleSignIn = async () => {
-    clearAuthError();
-    try {
-      await signIn();
-    } catch {
-      return;
-    }
-  };
-
-  const handleSignOut = async () => {
-    clearAuthError();
-    try {
-      await signOut();
-      setHistory([]);
-      setSavedWordId('');
-    } catch {
-      return;
-    }
-  };
-
   const handleSaveWord = async () => {
     if (!result || isSaving) return;
     setIsSaving(true);
@@ -222,8 +271,7 @@ export default function HomeScreen() {
         await refreshDailyRemindersIfEnabled([savedWord, ...history]);
       } catch (error) {
         setMessage(
-          `Word saved, but daily reminders could not be refreshed: ${
-            error instanceof Error ? error.message : 'Please try again.'
+          `Word saved, but daily reminders could not be refreshed: ${error instanceof Error ? error.message : 'Please try again.'
           }`,
         );
       }
@@ -233,9 +281,8 @@ export default function HomeScreen() {
         try {
           await clearQueuedWord();
         } catch (cleanupError) {
-          saveError += ` The pending save could not be cleared: ${
-            cleanupError instanceof Error ? cleanupError.message : 'Please try again.'
-          }`;
+          saveError += ` The pending save could not be cleared: ${cleanupError instanceof Error ? cleanupError.message : 'Please try again.'
+            }`;
         }
       }
       setMessage(saveError);
@@ -244,69 +291,53 @@ export default function HomeScreen() {
     }
   };
 
+  const savedId = isAuthenticated ? savedWordId : '';
+
+  const recent = history.slice(0, 2);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <ScreenBackdrop />
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingLeft: notebook ? NOTEBOOK_CONTENT_INSET : DEFAULT_CONTENT_INSET },
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
         <View style={styles.topBar}>
-          <View style={styles.brandLockup}>
+          <View accessible accessibilityRole="header" style={styles.brandLockup}>
             <View style={styles.brandMark}>
-              <Text style={styles.brandMarkText}>w</Text>
+              <Text style={styles.brandMarkText}>W</Text>
             </View>
-            <Text style={styles.brandName}>WORDJAM</Text>
+            <Text style={styles.brandName}>WordJam</Text>
           </View>
-          {isAuthenticated && user ? (
-            <Pressable
-              accessibilityRole="button"
-              disabled={isAuthLoading}
-              onPress={() => void handleSignOut()}
-              style={({ pressed }) => [styles.accountButton, pressed && styles.pressed]}>
-              <Text numberOfLines={1} style={styles.accountName}>
-                {getUserDisplayName(user)}
-              </Text>
-              <Text style={styles.accountAction}>Sign out</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Sign in with Google"
-              disabled={isAuthLoading || isSigningIn || !isSupabaseConfigured()}
-              onPress={() => void handleSignIn()}
-              style={({ pressed }) => [
-                styles.accountButton,
-                (isAuthLoading || isSigningIn || !isSupabaseConfigured()) &&
-                  styles.searchButtonDisabled,
-                pressed && styles.pressed,
-              ]}>
-              {isSigningIn ? (
-                <ActivityIndicator color={colors.deepGreen} size="small" />
-              ) : (
-                <Text style={styles.accountAction}>Sign in</Text>
-              )}
-            </Pressable>
-          )}
+          <AppMenu />
         </View>
 
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>MAKE WORDS YOURS</Text>
-          <Text style={styles.headline}>Find the{'\n'}right word.</Text>
-          <Text style={styles.subhead}>
-            Look it up, learn how it lives in a sentence, and keep it close.
+        <View style={styles.hero} accessible accessibilityRole="header">
+          <Text maxFontSizeMultiplier={1.2} style={styles.headline}>
+            Look it up.
           </Text>
+          <Text maxFontSizeMultiplier={1.2} style={styles.headline}>
+            Keep it.
+          </Text>
+          <View style={styles.useItChip}>
+            <Text maxFontSizeMultiplier={1.2} style={styles.useItText}>
+              Use it.
+            </Text>
+          </View>
         </View>
 
         <View style={styles.searchRow}>
-          <SearchIcon />
           <TextInput
             accessibilityLabel="Word to look up"
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setQuery}
             onSubmitEditing={() => void handleLookup()}
-            placeholder="Type a word to look up"
-            placeholderTextColor="#9A9D93"
+            placeholder="Look up a word…"
+            placeholderTextColor={colors.placeholder}
             returnKeyType="search"
             style={styles.searchInput}
             value={query}
@@ -315,6 +346,7 @@ export default function HomeScreen() {
             accessibilityRole="button"
             accessibilityLabel="Look up word"
             disabled={!query.trim() || isSearching}
+            hitSlop={4}
             onPress={() => void handleLookup()}
             style={({ pressed }) => [
               styles.searchButton,
@@ -322,17 +354,15 @@ export default function HomeScreen() {
               pressed && styles.pressed,
             ]}>
             {isSearching ? (
-              <ActivityIndicator color={colors.paper} size="small" />
+              <ActivityIndicator color={colors.onPrimary} size="small" />
             ) : (
-              <Text style={styles.searchButtonText}>Go</Text>
+              <SearchIcon color={colors.onPrimary} />
             )}
           </Pressable>
         </View>
 
         {!isSupabaseConfigured() ? (
-          <Text style={styles.setupHint}>
-            Add your Supabase keys to .env to sign in and save words.
-          </Text>
+          <Text style={styles.setupHint}>Add your Supabase keys to .env to sign in and save words.</Text>
         ) : null}
 
         {authError || message ? (
@@ -346,20 +376,19 @@ export default function HomeScreen() {
             <WordCard entry={result} />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={savedWordId ? 'Word saved' : 'Save word to your account'}
-              disabled={isSaving || Boolean(savedWordId) || !isSupabaseConfigured()}
+              accessibilityLabel={savedId ? 'Word saved' : 'Save word to your account'}
+              disabled={isSaving || Boolean(savedId) || !isSupabaseConfigured()}
               onPress={() => void handleSaveWord()}
               style={({ pressed }) => [
                 styles.saveButton,
-                (isSaving || savedWordId || !isSupabaseConfigured()) &&
-                  styles.searchButtonDisabled,
+                (isSaving || savedId || !isSupabaseConfigured()) && styles.searchButtonDisabled,
                 pressed && styles.pressed,
               ]}>
               {isSaving ? (
-                <ActivityIndicator color={colors.paper} size="small" />
+                <ActivityIndicator color={colors.onPrimary} size="small" />
               ) : (
                 <Text style={styles.saveButtonText}>
-                  {savedWordId
+                  {savedId
                     ? 'Saved to your words'
                     : isAuthenticated
                       ? 'Save to my words'
@@ -370,31 +399,55 @@ export default function HomeScreen() {
           </>
         ) : null}
 
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionEyebrow}>YOUR WORD JOURNAL</Text>
-            <Text style={styles.sectionTitle}>Recently looked up</Text>
+        {nextReminder && isAuthenticated ? (
+          <View
+            accessible
+            accessibilityLabel={`${formatNudgeTime(nextReminder.date).toLowerCase()}. ${nextReminder.word}. ${nextReminder.sentence}`}
+            style={styles.nudgeStack}>
+            <View style={styles.nudgeBack} />
+            <View style={styles.nudgeMiddle} />
+            <View style={styles.nudgeFront}>
+              <View style={styles.nudgeTop}>
+                <MonoLabel color={colors.onPrimary}>{formatNudgeTime(nextReminder.date)}</MonoLabel>
+                <BellIcon color={colors.onPrimary} />
+              </View>
+              <Text adjustsFontSizeToFit numberOfLines={1} style={styles.nudgeWord}>
+                {nextReminder.word}
+              </Text>
+              <View style={styles.nudgeRule} />
+              <HighlightedSentence
+                sentence={nextReminder.sentence}
+                word={nextReminder.word}
+                size={19}
+                color={colors.onPrimary}
+              />
+            </View>
           </View>
+        ) : null}
+
+        <View style={styles.sectionHeader}>
+          <MonoLabel>Recently looked up</MonoLabel>
           <Pressable
             accessibilityRole="button"
+            hitSlop={10}
             onPress={() => router.push('/explore')}
             style={({ pressed }) => [styles.seeAllButton, pressed && styles.pressed]}>
-            <Text style={styles.seeAllText}>See all</Text>
-            <Text style={styles.seeAllArrow}>↗</Text>
+            <Text style={styles.seeAllText}>See all →</Text>
           </Pressable>
         </View>
 
-        {history.length > 0 ? (
+        {recent.length > 0 ? (
           <View style={styles.recentList}>
-            {history.slice(0, 3).map(word => (
-              <RecentWord key={word.id} word={word} />
+            {recent.map((word, index) => (
+              <RecentWord
+                key={word.id}
+                word={word}
+                fill={index === 0 ? colors.softAccent : colors.paper}
+              />
             ))}
           </View>
         ) : (
           <View style={styles.emptyJournal}>
-            <View style={styles.emptyIllustration}>
-              <Text style={styles.emptyIllustrationText}>Aa</Text>
-            </View>
             <Text style={styles.emptyTitle}>
               {isAuthenticated ? 'Your next favorite word is out there.' : 'Words are yours to find.'}
             </Text>
@@ -405,440 +458,220 @@ export default function HomeScreen() {
             </Text>
           </View>
         )}
-
-        <View style={styles.reminderNote}>
-          <View style={styles.reminderDot} />
-          <Text style={styles.reminderNoteText}>
-            Keep the words you find. Practice them a little each day.
-          </Text>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    width: '100%',
-    maxWidth: 680,
-    alignSelf: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 36,
-  },
-  topBar: {
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  brandLockup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-  brandMark: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: colors.green,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandMarkText: {
-    color: colors.deepGreen,
-    fontSize: 21,
-    fontWeight: '800',
-    lineHeight: 25,
-  },
-  brandName: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  streakPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 18,
-    backgroundColor: colors.paper,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-  },
-  streakSpark: {
-    color: '#A16C36',
-    fontSize: 13,
-  },
-  streakText: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  accountButton: {
-    maxWidth: 155,
-    minHeight: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.paper,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  accountName: {
-    flexShrink: 1,
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  accountAction: {
-    color: colors.deepGreen,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  hero: {
-    paddingTop: 34,
-    paddingBottom: 23,
-  },
-  eyebrow: {
-    color: '#79825F',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.8,
-    marginBottom: 12,
-  },
-  headline: {
-    color: colors.ink,
-    fontSize: 48,
-    fontWeight: '700',
-    letterSpacing: -2,
-    lineHeight: 50,
-  },
-  subhead: {
-    maxWidth: 310,
-    color: colors.muted,
-    fontSize: 15,
-    lineHeight: 23,
-    marginTop: 12,
-  },
-  searchRow: {
-    minHeight: 60,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.paper,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingLeft: 17,
-    paddingRight: 7,
-    shadowColor: '#343B2B',
-    shadowOpacity: 0.045,
-    shadowRadius: 13,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
-  },
-  searchIcon: {
-    width: 20,
-    height: 21,
-    marginRight: 12,
-    justifyContent: 'center',
-  },
-  searchCircle: {
-    width: 13,
-    height: 13,
-    borderWidth: 1.8,
-    borderColor: '#6E7565',
-    borderRadius: 8,
-  },
-  searchHandle: {
-    position: 'absolute',
-    left: 12,
-    top: 14,
-    height: 6,
-    width: 1.8,
-    backgroundColor: '#6E7565',
-    transform: [{ rotate: '-45deg' }],
-  },
-  searchInput: {
-    flex: 1,
-    minWidth: 80,
-    color: colors.ink,
-    fontSize: 15,
-    paddingVertical: 14,
-  },
-  searchButton: {
-    minWidth: 46,
-    height: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: colors.deepGreen,
-  },
-  searchButtonDisabled: {
-    opacity: 0.48,
-  },
-  searchButtonText: {
-    color: colors.paper,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  pressed: {
-    opacity: 0.75,
-  },
-  setupHint: {
-    color: '#777B70',
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 10,
-    marginHorizontal: 4,
-  },
-  messageBox: {
-    backgroundColor: '#FFF0E7',
-    borderRadius: 13,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginTop: 14,
-  },
-  messageText: {
-    color: '#834A2A',
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  definitionCard: {
-    marginTop: 19,
-    backgroundColor: colors.paper,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 20,
-  },
-  saveButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 15,
-    backgroundColor: colors.deepGreen,
-    marginTop: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  saveButtonText: {
-    color: colors.paper,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  wordHeading: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  wordTitleGroup: {
-    flexShrink: 1,
-  },
-  wordTitle: {
-    color: colors.ink,
-    fontSize: 31,
-    fontWeight: '700',
-    letterSpacing: -0.8,
-  },
-  pronunciation: {
-    color: colors.muted,
-    fontSize: 14,
-    marginTop: 2,
-  },
-  partOfSpeech: {
-    overflow: 'hidden',
-    borderRadius: 14,
-    backgroundColor: colors.paleGreen,
-    color: colors.deepGreen,
-    fontSize: 11,
-    fontWeight: '700',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    textTransform: 'capitalize',
-  },
-  cardDivider: {
-    height: 1,
-    backgroundColor: colors.line,
-    marginVertical: 17,
-  },
-  sectionLabel: {
-    color: '#79825F',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-  },
-  definitionText: {
-    color: colors.ink,
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 8,
-  },
-  exampleBox: {
-    backgroundColor: '#F7F8F1',
-    borderLeftWidth: 3,
-    borderLeftColor: colors.orange,
-    borderRadius: 11,
-    padding: 13,
-    marginTop: 18,
-  },
-  exampleLabel: {
-    color: colors.muted,
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-  },
-  exampleText: {
-    color: '#3D4436',
-    fontSize: 14,
-    fontStyle: 'italic',
-    lineHeight: 21,
-    marginTop: 7,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginTop: 34,
-    marginBottom: 12,
-  },
-  sectionEyebrow: {
-    color: '#79825F',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    marginBottom: 5,
-  },
-  sectionTitle: {
-    color: colors.ink,
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.4,
-  },
-  seeAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 7,
-  },
-  seeAllText: {
-    color: colors.deepGreen,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  seeAllArrow: {
-    color: colors.deepGreen,
-    fontSize: 15,
-  },
-  recentList: {
-    backgroundColor: colors.paper,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  recentRow: {
-    minHeight: 68,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  recentWordIcon: {
-    height: 38,
-    width: 38,
-    borderRadius: 13,
-    backgroundColor: colors.paleGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  recentWordInitial: {
-    color: colors.deepGreen,
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  recentCopy: {
-    flex: 1,
-  },
-  recentWord: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: '700',
-    textTransform: 'capitalize',
-  },
-  recentDefinition: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 3,
-  },
-  recentArrow: {
-    color: '#A1A597',
-    fontSize: 23,
-    paddingLeft: 10,
-  },
-  emptyJournal: {
-    alignItems: 'center',
-    backgroundColor: colors.paper,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingHorizontal: 24,
-    paddingVertical: 25,
-  },
-  emptyIllustration: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.green,
-    transform: [{ rotate: '-7deg' }],
-  },
-  emptyIllustrationText: {
-    color: colors.deepGreen,
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  emptyTitle: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 14,
-  },
-  emptyDescription: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginTop: 6,
-  },
-  reminderNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    marginTop: 23,
-    paddingHorizontal: 3,
-  },
-  reminderDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.orange,
-  },
-  reminderNoteText: {
-    flex: 1,
-    color: colors.muted,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-});
+function createStyles(colors: BackgroundColors) {
+  return StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    content: {
+      width: '100%',
+      maxWidth: 680,
+      alignSelf: 'center',
+      paddingRight: 20,
+      paddingBottom: 32,
+    },
+    topBar: {
+      height: RULE_SPACING * 2,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    brandMark: {
+      ...sticker(colors, { fill: colors.accent, radius: 10, shadow: 2 }),
+      width: 34,
+      height: 34,
+      alignItems: 'center',
+      justifyContent: 'center',
+      transform: [{ rotate: '-7deg' }],
+    },
+    brandMarkText: {
+      color: colors.ink,
+      fontFamily: AppFonts.serifItalic,
+      fontSize: 24,
+      lineHeight: 30,
+    },
+    brandName: {
+      color: colors.ink,
+      fontFamily: AppFonts.serifItalic,
+      fontSize: 28,
+      lineHeight: 34,
+    },
+    hero: { marginTop: RULE_SPACING },
+    headline: {
+      color: colors.ink,
+      fontFamily: AppFonts.serif,
+      fontSize: 56,
+      lineHeight: 64,
+      letterSpacing: -1.45,
+    },
+    useItChip: {
+      ...sticker(colors, { fill: colors.accent, radius: 10, shadow: 0 }),
+      alignSelf: 'flex-start',
+      minHeight: 68,
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 2,
+      marginTop: 2,
+      transform: [{ rotate: '-1.5deg' }],
+    },
+    useItText: {
+      color: colors.ink,
+      fontFamily: AppFonts.serifItalic,
+      fontSize: 56,
+      lineHeight: 64,
+      letterSpacing: -1.45,
+    },
+    // 28 * 2 - 6 = 56
+    searchRow: {
+      ...sticker(colors, { radius: 16, shadow: 4 }),
+      height: 60,
+      marginTop: 22,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingLeft: 16,
+      paddingRight: 7,
+    },
+    searchInput: {
+      flex: 1,
+      minWidth: 80,
+      color: colors.ink,
+      fontFamily: AppFonts.serif,
+      fontSize: 28,
+      paddingVertical: 8,
+    },
+    searchButton: {
+      ...sticker(colors, { fill: colors.primary, radius: 12, shadow: 0 }),
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    searchButtonDisabled: { opacity: 0.55 },
+    pressed: { opacity: 0.75 },
+    setupHint: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 12 },
+    messageBox: {
+      backgroundColor: colors.errorBackground,
+      borderRadius: 14,
+      borderWidth: 2,
+      borderColor: colors.ink,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginTop: 16,
+    },
+    messageText: { color: colors.errorText, fontSize: 14, lineHeight: 20 },
+    definitionCard: { ...sticker(colors), marginTop: 22, padding: 18 },
+    saveButton: {
+      ...sticker(colors, { fill: colors.primary, radius: 16, shadow: 3 }),
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 18,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    saveButtonText: { color: colors.onPrimary, fontSize: 15, fontWeight: '700' },
+    wordHeading: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    wordTitleGroup: { flexShrink: 1 },
+    wordTitle: { color: colors.ink, fontFamily: AppFonts.serif, fontSize: 40, lineHeight: 44 },
+    pronunciation: { color: colors.muted, fontSize: 14, marginTop: 2 },
+    partOfSpeech: {
+      ...sticker(colors, { fill: colors.softAccent, radius: 14, shadow: 0 }),
+      overflow: 'hidden',
+      color: colors.ink,
+      fontFamily: AppFonts.mono,
+      fontSize: 11,
+      letterSpacing: 0.9,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      textTransform: 'uppercase',
+    },
+    cardDivider: { height: 1, backgroundColor: colors.hairline, marginVertical: 16 },
+    definitionText: { color: colors.ink, fontSize: 16, lineHeight: 24, marginTop: 8 },
+    exampleBox: {
+      backgroundColor: colors.softNeutral,
+      borderRadius: 12,
+      padding: 14,
+      marginTop: 18,
+    },
+    exampleText: { marginTop: 8 },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 28,
+      marginBottom: 10,
+    },
+    seeAllButton: { minHeight: 32, justifyContent: 'center' },
+    seeAllText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    nudgeStack: { marginTop: 30, height: 206 },
+    nudgeBack: {
+      ...sticker(colors, { fill: colors.lavender, radius: 20, shadow: 0 }),
+      position: 'absolute',
+      left: 10,
+      right: 6,
+      top: 14,
+      height: 184,
+      transform: [{ rotate: '4deg' }],
+    },
+    nudgeMiddle: {
+      ...sticker(colors, { fill: colors.accent, radius: 20, shadow: 0 }),
+      position: 'absolute',
+      left: 4,
+      right: 12,
+      top: 16,
+      height: 184,
+      transform: [{ rotate: '-2.5deg' }],
+    },
+    nudgeFront: {
+      ...sticker(colors, { fill: colors.primary, radius: 20, shadow: 5 }),
+      minHeight: 184,
+      paddingHorizontal: 18,
+      paddingVertical: 14,
+      marginRight: 5,
+    },
+    nudgeTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    nudgeWord: {
+      color: colors.onPrimary,
+      fontFamily: AppFonts.serif,
+      fontSize: 54,
+      lineHeight: 60,
+      marginTop: 4,
+    },
+    nudgeRule: { height: 1, backgroundColor: 'rgba(255,255,255,0.4)', marginTop: 6, marginBottom: 10 },
+    recentList: { gap: 8 },
+    recentRow: {
+      ...sticker(colors, { radius: 14, shadow: 0 }),
+      minHeight: 52,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingHorizontal: 12,
+    },
+    recentWord: { flex: 1, color: colors.ink, fontFamily: AppFonts.serif, fontSize: 26, lineHeight: 32 },
+    emptyJournal: { ...sticker(colors, { radius: 20, shadow: 4 }), alignItems: 'center', padding: 22 },
+    emptyTitle: {
+      color: colors.ink,
+      fontFamily: AppFonts.serif,
+      fontSize: 26,
+      lineHeight: 30,
+      textAlign: 'center',
+    },
+    emptyDescription: {
+      color: colors.muted,
+      fontSize: 14,
+      lineHeight: 20,
+      textAlign: 'center',
+      marginTop: 8,
+    },
+  });
+}

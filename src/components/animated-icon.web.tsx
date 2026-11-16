@@ -1,8 +1,9 @@
-import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 import Animated, { Keyframe, Easing } from 'react-native-reanimated';
 
-import classes from './animated-icon.module.css';
+import { AppText } from '@/components/app-text';
+import { Palette } from '@/constants/theme';
+
 const DURATION = 300;
 
 export function AnimatedSplashOverlay() {
@@ -57,16 +58,14 @@ const glowKeyframe = new Keyframe({
 export function AnimatedIcon() {
   return (
     <View style={styles.iconContainer}>
-      <Animated.View entering={glowKeyframe.duration(60 * 1000 * 4)} style={styles.glow}>
-        <Image style={styles.glow} source={require('@/assets/images/logo-glow.png')} />
-      </Animated.View>
+      <Animated.View entering={glowKeyframe.duration(60 * 1000 * 4)} style={styles.glow} />
 
       <Animated.View style={styles.background} entering={keyframe.duration(DURATION)}>
-        <div className={classes.expoLogoBackground} />
+        <View style={styles.backgroundFill} />
       </Animated.View>
 
       <Animated.View style={styles.imageContainer} entering={logoKeyframe.duration(DURATION)}>
-        <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />
+        <AppText style={styles.iconMark}>w</AppText>
       </Animated.View>
     </View>
   );
@@ -88,6 +87,8 @@ const styles = StyleSheet.create({
     width: 201,
     height: 201,
     position: 'absolute',
+    borderRadius: 101,
+    backgroundColor: Palette.softRose,
   },
   iconContainer: {
     justifyContent: 'center',
@@ -95,10 +96,17 @@ const styles = StyleSheet.create({
     width: 128,
     height: 128,
   },
-  image: {
-    position: 'absolute',
-    width: 76,
-    height: 71,
+  iconMark: {
+    color: Palette.burgundy,
+    fontSize: 88,
+    fontWeight: '800',
+    lineHeight: 100,
+  },
+  backgroundFill: {
+    width: 128,
+    height: 128,
+    borderRadius: 40,
+    backgroundColor: Palette.rose,
   },
   background: {
     width: 128,
